@@ -1,0 +1,18 @@
+Source: remglk
+Section: libdevel
+Priority: extra
+Maintainer: Christoph Ender <christoph.ender@spellbreaker.org>
+Build-Depends: debhelper (>= 9.0.0),
+ dpkg-dev (>= 1.16.1~)
+Standards-Version: 3.9.8
+Homepage: http://eblong.com/zarf/glk/remglk/docs.html
+
+Package: remglk
+Architecture: any
+Depends: ${misc:Depends}
+Description: Remote-procedure-call Glk library
+ RemGlk is a C library which implements the Glk API. You can compile
+ a Glk application and link it with this library. RemGlk  does not
+ provide a user interface. Instead, it wraps up the application's
+ output as a JSON data structure and sends it to stdout. It then waits
+ for input to arrive from stdin; the input data must also be encoded as JSON.
