@@ -2,7 +2,3 @@
 %:
 	dh $@
 
-#override_dh_auto_install:
-#	DESTDIR=$(CURDIR)/debian/libfizmo-common $(MAKE) install-data-local
-#	DESTDIR=$(CURDIR)/debian/libfizmo-dev $(MAKE) install-dev
-
