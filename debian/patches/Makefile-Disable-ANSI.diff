@@ -1,0 +1,16 @@
+Disabled cc ANSI behaviour.
+Index: remglk-0.2.3/Makefile
+===================================================================
+--- remglk-0.2.3.orig/Makefile
++++ remglk-0.2.3/Makefile
+@@ -8,8 +8,8 @@
+ # and glk.h, glkstart.h, and Make.remglk in the include directory.
+ 
+ # Pick a C compiler.
+-#CC = cc
+-CC = gcc -ansi
++CC = cc
++#CC = gcc -ansi
+ 
+ OPTIONS = -g -Wall
+ 
