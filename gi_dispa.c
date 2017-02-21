@@ -1,8 +1,8 @@
-/* gi_dispa.c: Dispatch layer for Glk API, version 0.7.4.
+/* gi_dispa.c: Dispatch layer for Glk API, version 0.7.5.
     Designed by Andrew Plotkin <erkyrath@eblong.com>
     http://eblong.com/zarf/glk/
 
-    This file is copyright 1998-2012 by Andrew Plotkin. It is
+    This file is copyright 1998-2017 by Andrew Plotkin. It is
     distributed under the MIT license; see the "LICENSE" file.
 */
 
@@ -67,6 +67,7 @@ static gidispatch_intconst_t intconstant_table[] = {
     { "gestalt_DateTime", (20) },
     { "gestalt_DrawImage", (7) },
     { "gestalt_Graphics", (6) },
+    { "gestalt_GraphicsCharInput", (23) },
     { "gestalt_GraphicsTransparency", (14) },
     { "gestalt_HyperlinkInput", (12) },
     { "gestalt_Hyperlinks", (11) },
@@ -660,6 +661,10 @@ char *gidispatch_prototype(glui32 funcnum)
         case 0x013A: /* stream_open_resource_uni */
             return "3IuIu:Qb";
 #endif /* GLK_MODULE_RESOURCE_STREAM */
+
+#ifdef GLK_EXTEND_PROTOTYPE
+        GLK_EXTEND_PROTOTYPE
+#endif /* GLK_EXTEND_PROTOTYPE */
 
         default:
             return NULL;
@@ -1487,6 +1492,10 @@ void gidispatch_call(glui32 funcnum, glui32 numargs, gluniversal_t *arglist)
             arglist[3].opaqueref = glk_stream_open_resource_uni(arglist[0].uint, arglist[1].uint);
             break;
 #endif /* GLK_MODULE_RESOURCE_STREAM */
+
+#ifdef GLK_EXTEND_CALL
+        GLK_EXTEND_CALL
+#endif /* GLK_EXTEND_CALL */
 
         default:
             /* do nothing */

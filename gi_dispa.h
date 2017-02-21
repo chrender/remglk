@@ -1,11 +1,11 @@
 #ifndef _GI_DISPA_H
 #define _GI_DISPA_H
 
-/* gi_dispa.h: Header file for dispatch layer of Glk API, version 0.7.4.
+/* gi_dispa.h: Header file for dispatch layer of Glk API, version 0.7.5.
     Designed by Andrew Plotkin <erkyrath@eblong.com>
     http://eblong.com/zarf/glk/index.html
 
-    This file is copyright 1998-2012 by Andrew Plotkin. It is
+    This file is copyright 1998-2017 by Andrew Plotkin. It is
     distributed under the MIT license; see the "LICENSE" file.
 */
 
@@ -66,6 +66,17 @@ extern void gidispatch_set_retained_registry(
     gidispatch_rock_t (*regi)(void *array, glui32 len, char *typecode), 
     void (*unregi)(void *array, glui32 len, char *typecode, 
         gidispatch_rock_t objrock));
+
+/* This function is also part of the Glk library, but it only exists
+    on libraries that support autorestore. (Only iosglk, currently.)
+    Only call this if GIDISPATCH_AUTORESTORE_REGISTRY is defined.
+*/
+#define GIDISPATCH_AUTORESTORE_REGISTRY
+extern void gidispatch_set_autorestore_registry(
+    long (*locatearr)(void *array, glui32 len, char *typecode,
+        gidispatch_rock_t objrock, int *elemsizeref),
+    gidispatch_rock_t (*restorearr)(long bufkey, glui32 len,
+        char *typecode, void **arrayref));
 
 /* The following functions make up the Glk dispatch layer. Although they are
     distributed as part of each Glk library (linked into the library file),

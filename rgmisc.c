@@ -58,6 +58,9 @@ void glk_exit()
     gli_windows_update(NULL, TRUE);
     gli_streams_close_all();
 
+    if (gli_debugger)
+        gidebug_announce_cycle(gidebug_cycle_End);
+
     exit(0);
 }
 
@@ -149,6 +152,7 @@ void gli_display_warning(char *msg)
         print_string_json(msg, stdout);
         printf("}\n");
     }
+    printf("\n"); /* blank line after stanza */
     fflush(stdout);
 }
 
@@ -162,6 +166,7 @@ void gli_display_error(char *msg)
         print_string_json(msg, stdout);
         printf("}\n");
     }
+    printf("\n"); /* blank line after stanza */
     fflush(stdout);
     exit(1);
 }

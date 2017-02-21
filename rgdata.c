@@ -16,7 +16,7 @@
 /* RawType encodes the type of a JSON data element. */
 typedef enum RawType_enum {
     rawtyp_None = 0,
-    rawtyp_Int = 1,
+    rawtyp_Number = 1,
     rawtyp_Str = 2,
     rawtyp_List = 3,
     rawtyp_Struct = 4,
@@ -72,6 +72,7 @@ struct data_raw_struct {
     int keylen;
 
     glsi32 number;
+    double realnumber;
     glui32 *str;
     data_raw_t **list;
     int count;
@@ -215,6 +216,33 @@ void print_string_json(char *buf, FILE *fl)
     fprintf(fl, "\"");
 }
 
+/* Send a UTF-8 string to an output stream, validly JSON-encoded.
+   (This does not check that the argument is valid UTF-8; that's the
+   caller's responsibility!)
+   This includes the delimiting double-quotes. */
+void print_utf8string_json(char *buf, FILE *fl)
+{
+    char *cx;
+
+    fprintf(fl, "\"");
+    for (cx=buf; *cx; cx++) {
+        glui32 ch = (*cx) & 0xFF;
+        if (ch == '\"')
+            fprintf(fl, "\\\"");
+        else if (ch == '\\')
+            fprintf(fl, "\\\\");
+        else if (ch == '\n')
+            fprintf(fl, "\\n");
+        else if (ch == '\t')
+            fprintf(fl, "\\t");
+        else if (ch < 32)
+            fprintf(fl, "\\u%04X", ch);
+        else
+            fputc(ch, fl);
+    }
+    fprintf(fl, "\"");
+}
+
 void gen_list_init(gen_list_t *list)
 {
     list->list = NULL;
@@ -261,6 +289,7 @@ static data_raw_t *data_raw_alloc(RawType type)
     dat->key = NULL;
     dat->keylen = 0;
     dat->number = 0;
+    dat->realnumber = 0.0;
     dat->str = NULL;
     dat->list = NULL;
     dat->count = 0;
@@ -313,7 +342,8 @@ void data_raw_print(data_raw_t *dat)
     }
 
     switch (dat->type) {
-        case rawtyp_Int:
+        case rawtyp_Number:
+            /* We don't need to output floats. */
             printf("%ld", (long)dat->number);
             return;
         case rawtyp_True:
@@ -372,13 +402,22 @@ static data_raw_t *data_raw_blockread()
     return dat;
 }
 
-/* Validate that the object is an int, and get its value. */
+/* Validate that the object is a number, and get its value (as an int). */
 static glsi32 data_raw_int_value(data_raw_t *dat)
 {
-    if (dat->type != rawtyp_Int)
-        gli_fatal_error("data: Need int");
+    if (dat->type != rawtyp_Number)
+        gli_fatal_error("data: Need number");
 
     return dat->number;
+}
+
+/* Validate that the object is a number, and get its value (as a real). */
+static double data_raw_real_value(data_raw_t *dat)
+{
+    if (dat->type != rawtyp_Number)
+        gli_fatal_error("data: Need number");
+
+    return dat->realnumber;
 }
 
 /* Validate that the object is a string, and return its value as a
@@ -501,14 +540,27 @@ static data_raw_t *data_raw_blockread_sub(char *termchar)
         /* This accepts "01", which it really shouldn't, but whatever.
            We also ignore the decimal part if found, which means we're
            rounding towards zero. */
-        data_raw_t *dat = data_raw_alloc(rawtyp_Int);
+        data_raw_t *dat = data_raw_alloc(rawtyp_Number);
         while (ch >= '0' && ch <= '9') {
             dat->number = 10 * dat->number + (ch-'0');
             ch = getchar();
         }
 
-        while (ch == '.' || (ch >= '0' && ch <= '9'))
+        if (ch == '.') {
+            /* We have to think about real numbers. */
             ch = getchar();
+            long numer = 0;
+            long denom = 1;
+            while (ch >= '0' && ch <= '9') {
+                numer = 10 * numer + (ch-'0');
+                denom *= 10;
+                ch = getchar();
+            }
+            dat->realnumber = (double)dat->number + (double)numer / (double)denom;
+        }
+        else {
+            dat->realnumber = (double)dat->number;
+        }
 
         if (ch != EOF)
             ungetc(ch, stdin);
@@ -516,7 +568,7 @@ static data_raw_t *data_raw_blockread_sub(char *termchar)
     }
 
     if (ch == '-') {
-        data_raw_t *dat = data_raw_alloc(rawtyp_Int);
+        data_raw_t *dat = data_raw_alloc(rawtyp_Number);
         ch = getchar();
         if (!(ch >= '0' && ch <= '9'))
             gli_fatal_error("data: minus must be followed by number");
@@ -527,8 +579,21 @@ static data_raw_t *data_raw_blockread_sub(char *termchar)
         }
         dat->number = -dat->number;
 
-        while (ch == '.' || (ch >= '0' && ch <= '9'))
+        if (ch == '.') {
+            /* We have to think about real numbers. */
             ch = getchar();
+            long numer = 0;
+            long denom = 1;
+            while (ch >= '0' && ch <= '9') {
+                numer = 10 * numer + (ch-'0');
+                denom *= 10;
+                ch = getchar();
+            }
+            dat->realnumber = (double)dat->number - (double)numer / (double)denom;
+        }
+        else {
+            dat->realnumber = (double)dat->number;
+        }
 
         if (ch != EOF)
             ungetc(ch, stdin);
@@ -743,14 +808,16 @@ data_metrics_t *data_metrics_alloc(int width, int height)
     metrics->outspacingy = 0;
     metrics->inspacingx = 0;
     metrics->inspacingy = 0;
-    metrics->gridcharwidth = 1;
-    metrics->gridcharheight = 1;
+    metrics->gridcharwidth = 1.0;
+    metrics->gridcharheight = 1.0;
     metrics->gridmarginx = 0;
     metrics->gridmarginy = 0;
-    metrics->buffercharwidth = 1;
-    metrics->buffercharheight = 1;
+    metrics->buffercharwidth = 1.0;
+    metrics->buffercharheight = 1.0;
     metrics->buffermarginx = 0;
     metrics->buffermarginy = 0;
+    metrics->graphicsmarginx = 0;
+    metrics->graphicsmarginy = 0;
 
     return metrics;
 }
@@ -779,31 +846,34 @@ static data_metrics_t *data_metrics_parse(data_raw_t *rawdata)
         gli_fatal_error("data: Metrics require height");
     metrics->height = data_raw_int_value(dat);
 
+    /* charwidth/charheight aren't spec, but we accept them as a shortcut.
+       (Don't send both charwidth and gridcharwidth, e.g., because the
+       library might ignore the wrong one.) */
     dat = data_raw_struct_field(rawdata, "charwidth");
     if (dat) {
-        glsi32 val = data_raw_int_value(dat);
+        double val = data_raw_real_value(dat);
         metrics->gridcharwidth = val;
         metrics->buffercharwidth = val;
     }
     dat = data_raw_struct_field(rawdata, "charheight");
     if (dat) {
-        glsi32 val = data_raw_int_value(dat);
+        double val = data_raw_real_value(dat);
         metrics->gridcharheight = val;
         metrics->buffercharheight = val;
     }
 
     dat = data_raw_struct_field(rawdata, "gridcharwidth");
     if (dat)
-        metrics->gridcharwidth = data_raw_int_value(dat);
+        metrics->gridcharwidth = data_raw_real_value(dat);
     dat = data_raw_struct_field(rawdata, "gridcharheight");
     if (dat)
-        metrics->gridcharheight = data_raw_int_value(dat);
+        metrics->gridcharheight = data_raw_real_value(dat);
     dat = data_raw_struct_field(rawdata, "buffercharwidth");
     if (dat)
-        metrics->buffercharwidth = data_raw_int_value(dat);
+        metrics->buffercharwidth = data_raw_real_value(dat);
     dat = data_raw_struct_field(rawdata, "buffercharheight");
     if (dat)
-        metrics->buffercharheight = data_raw_int_value(dat);
+        metrics->buffercharheight = data_raw_real_value(dat);
 
     dat = data_raw_struct_field(rawdata, "margin");
     if (dat) {
@@ -812,6 +882,8 @@ static data_metrics_t *data_metrics_parse(data_raw_t *rawdata)
         metrics->gridmarginy = val;
         metrics->buffermarginx = val;
         metrics->buffermarginy = val;
+        metrics->graphicsmarginx = val;
+        metrics->graphicsmarginy = val;
     }
 
     dat = data_raw_struct_field(rawdata, "gridmargin");
@@ -828,11 +900,19 @@ static data_metrics_t *data_metrics_parse(data_raw_t *rawdata)
         metrics->buffermarginy = val;
     }
 
+    dat = data_raw_struct_field(rawdata, "graphicsmargin");
+    if (dat) {
+        glsi32 val = data_raw_int_value(dat);
+        metrics->graphicsmarginx = val;
+        metrics->graphicsmarginy = val;
+    }
+
     dat = data_raw_struct_field(rawdata, "marginx");
     if (dat) {
         glsi32 val = data_raw_int_value(dat);
         metrics->gridmarginx = val;
         metrics->buffermarginx = val;
+        metrics->graphicsmarginx = val;
     }
 
     dat = data_raw_struct_field(rawdata, "marginy");
@@ -840,6 +920,7 @@ static data_metrics_t *data_metrics_parse(data_raw_t *rawdata)
         glsi32 val = data_raw_int_value(dat);
         metrics->gridmarginy = val;
         metrics->buffermarginy = val;
+        metrics->graphicsmarginy = val;
     }
 
     dat = data_raw_struct_field(rawdata, "gridmarginx");
@@ -854,6 +935,12 @@ static data_metrics_t *data_metrics_parse(data_raw_t *rawdata)
     dat = data_raw_struct_field(rawdata, "buffermarginy");
     if (dat) 
         metrics->buffermarginy = data_raw_int_value(dat);
+    dat = data_raw_struct_field(rawdata, "graphicsmarginx");
+    if (dat) 
+        metrics->graphicsmarginx = data_raw_int_value(dat);
+    dat = data_raw_struct_field(rawdata, "graphicsmarginy");
+    if (dat) 
+        metrics->graphicsmarginy = data_raw_int_value(dat);
 
     dat = data_raw_struct_field(rawdata, "spacing");
     if (dat) {
@@ -922,10 +1009,67 @@ void data_metrics_print(data_metrics_t *metrics)
     printf("  size: %ldx%ld\n", (long)metrics->width, (long)metrics->height);
     printf("  outspacing: %ldx%ld\n", (long)metrics->outspacingx, (long)metrics->outspacingy);
     printf("  inspacing: %ldx%ld\n", (long)metrics->inspacingx, (long)metrics->inspacingy);
-    printf("  gridchar: %ldx%ld\n", (long)metrics->gridcharwidth, (long)metrics->gridcharheight);
+    printf("  gridchar: %.1fx%.1f\n", metrics->gridcharwidth, metrics->gridcharheight);
     printf("  gridmargin: %ldx%ld\n", (long)metrics->gridmarginx, (long)metrics->gridmarginy);
-    printf("  bufferchar: %ldx%ld\n", (long)metrics->buffercharwidth, (long)metrics->buffercharheight);
+    printf("  bufferchar: %.1fx%.1f\n", metrics->buffercharwidth, metrics->buffercharheight);
     printf("  buffermargin: %ldx%ld\n", (long)metrics->buffermarginx, (long)metrics->buffermarginy);
+    printf("  graphicsmargin: %ldx%ld\n", (long)metrics->graphicsmarginx, (long)metrics->graphicsmarginy);
+    printf("}\n");   
+}
+
+data_supportcaps_t *data_supportcaps_alloc()
+{
+    data_supportcaps_t *supportcaps = (data_supportcaps_t *)malloc(sizeof(data_supportcaps_t));
+
+    supportcaps->timer = FALSE;
+    supportcaps->hyperlinks = FALSE;
+    supportcaps->graphics = FALSE;
+    supportcaps->graphicswin = FALSE;
+    supportcaps->sound = FALSE;
+
+    return supportcaps;
+}
+
+void data_supportcaps_free(data_supportcaps_t *supportcaps)
+{
+    free(supportcaps);
+}
+
+static data_supportcaps_t *data_supportcaps_parse(data_raw_t *rawdata)
+{
+    data_supportcaps_t *supportcaps = data_supportcaps_alloc();
+
+    if (rawdata->type == rawtyp_List) {
+        int ix;
+        for (ix=0; ix<rawdata->count; ix++) {
+            data_raw_t *dat = rawdata->list[ix];
+
+            if (data_raw_string_is(dat, "timer"))
+                supportcaps->timer = TRUE;
+            if (data_raw_string_is(dat, "hyperlinks"))
+                supportcaps->hyperlinks = TRUE;
+            if (data_raw_string_is(dat, "graphics"))
+                supportcaps->graphics = TRUE;
+            if (data_raw_string_is(dat, "graphicswin"))
+                supportcaps->graphicswin = TRUE;
+            if (data_raw_string_is(dat, "sound"))
+                supportcaps->sound = TRUE;
+        }
+    }
+
+    return supportcaps;
+}
+
+void data_supportcaps_print(data_supportcaps_t *supportcaps)
+{
+    /* This displays very verbosely, and not in JSON-readable format. */
+
+    printf("{\n");   
+    printf("  timer: %d\n", supportcaps->timer);
+    printf("  hyperlinks: %d\n", supportcaps->hyperlinks);
+    printf("  graphics: %d\n", supportcaps->graphics);
+    printf("  graphicswin: %d\n", supportcaps->graphicswin);
+    printf("  sound: %d\n", supportcaps->sound);
     printf("}\n");   
 }
 
@@ -940,6 +1084,10 @@ void data_event_free(data_event_t *data)
         data_metrics_free(data->metrics);
         data->metrics = NULL;
     }
+    if (data->supportcaps) {
+        data_supportcaps_free(data->supportcaps);
+        data->supportcaps = NULL;
+    }
     free(data);
 }
 
@@ -950,8 +1098,14 @@ void data_event_print(data_event_t *data)
             printf("{ \"type\": \"init\", \"gen\": %d, \"metrics\":\n",
                 data->gen);
             data_metrics_print(data->metrics);
+            if (data->supportcaps) {
+                printf(", \"support\":\n");
+                data_supportcaps_print(data->supportcaps);
+            }
             printf("}\n");
             break;
+
+        /* ### Never got around to implementing the rest of this, did I... */
 
         default:
             printf("{? unknown dtag %d}\n", data->dtag);
@@ -980,7 +1134,9 @@ data_event_t *data_event_read()
     input->linevalue = NULL;
     input->linelen = 0;
     input->terminator = 0;
+    input->linkvalue = 0;
     input->metrics = NULL;
+    input->supportcaps = NULL;
 
     if (data_raw_string_is(dat, "init")) {
         input->dtag = dtag_Init;
@@ -994,6 +1150,11 @@ data_event_t *data_event_read()
         if (!dat)
             gli_fatal_error("data: Init input struct has no metrics");
         input->metrics = data_metrics_parse(dat);
+
+        dat = data_raw_struct_field(rawdata, "support");
+        if (dat) {
+            input->supportcaps = data_supportcaps_parse(dat);
+        }
     }
     else if (data_raw_string_is(dat, "refresh")) {
         input->dtag = dtag_Refresh;
@@ -1016,6 +1177,18 @@ data_event_t *data_event_read()
             gli_fatal_error("data: Arrange input struct has no metrics");
 
         input->metrics = data_metrics_parse(dat);
+    }
+    else if (data_raw_string_is(dat, "redraw")) {
+        input->dtag = dtag_Redraw;
+
+        dat = data_raw_struct_field(rawdata, "gen");
+        if (!dat)
+            gli_fatal_error("data: Redraw input struct has no gen");
+        input->gen = data_raw_int_value(dat);
+
+        dat = data_raw_struct_field(rawdata, "window");
+        if (dat)
+            input->window = data_raw_int_value(dat);
     }
     else if (data_raw_string_is(dat, "line")) {
         input->dtag = dtag_Line;
@@ -1058,6 +1231,32 @@ data_event_t *data_event_read()
             gli_fatal_error("data: Char input struct has no value");
         input->charvalue = data_raw_str_char(dat);
     }
+    else if (data_raw_string_is(dat, "hyperlink")) {
+        input->dtag = dtag_Hyperlink;
+
+        dat = data_raw_struct_field(rawdata, "gen");
+        if (!dat)
+            gli_fatal_error("data: Hyperlink input struct has no gen");
+        input->gen = data_raw_int_value(dat);
+
+        dat = data_raw_struct_field(rawdata, "window");
+        if (!dat)
+            gli_fatal_error("data: Hyperlink input struct has no window");
+        input->window = data_raw_int_value(dat);
+
+        dat = data_raw_struct_field(rawdata, "value");
+        if (!dat)
+            gli_fatal_error("data: Hyperlink input struct has no value");
+        input->linkvalue = data_raw_int_value(dat);
+    }
+    else if (data_raw_string_is(dat, "timer")) {
+        input->dtag = dtag_Timer;
+
+        dat = data_raw_struct_field(rawdata, "gen");
+        if (!dat)
+            gli_fatal_error("data: Timer input struct has no gen");
+        input->gen = data_raw_int_value(dat);
+    }
     else if (data_raw_string_is(dat, "specialresponse")) {
         input->dtag = dtag_SpecialResponse;
 
@@ -1076,8 +1275,29 @@ data_event_t *data_event_read()
             input->linelen = dat->count;
         }
     }
+    else if (data_raw_string_is(dat, "debuginput")) {
+        input->dtag = dtag_DebugInput;
+
+        dat = data_raw_struct_field(rawdata, "gen");
+        if (!dat)
+            gli_fatal_error("data: Debug input struct has no gen");
+        input->gen = data_raw_int_value(dat);
+
+        dat = data_raw_struct_field(rawdata, "value");
+        if (!dat)
+            gli_fatal_error("data: Debug input struct has no value");
+        input->linevalue = data_raw_str_dup(dat);
+        input->linelen = dat->count;
+    }
     else {
-        gli_fatal_error("data: Input struct has unknown type");
+        /* Unrecognized event type. Let it go through; glk_select will
+           ignore it. */
+        input->dtag = dtag_Unknown;
+
+        dat = data_raw_struct_field(rawdata, "gen");
+        if (!dat)
+            gli_fatal_error("data: ??? input struct has no gen");
+        input->gen = data_raw_int_value(dat);
     }
 
     /*### partials support */
@@ -1094,12 +1314,15 @@ data_update_t *data_update_alloc()
     dat->gen = 0;
     dat->usewindows = FALSE;
     dat->useinputs = FALSE;
+    dat->includetimer = FALSE;
+    dat->timer = 0;
     dat->disable = FALSE;
     dat->specialreq = NULL;
 
     gen_list_init(&dat->windows);
     gen_list_init(&dat->contents);
     gen_list_init(&dat->inputs);
+    gen_list_init(&dat->debuglines);
 
     return dat;
 }
@@ -1128,9 +1351,15 @@ void data_update_free(data_update_t *dat)
         data_input_free(inplist[ix]);
     }
 
+    char **debuglist = (char **)(dat->debuglines.list);
+    for (ix=0; ix<dat->debuglines.count; ix++) {
+        free(debuglist[ix]);
+    }
+
     gen_list_free(&dat->windows);
     gen_list_free(&dat->contents);
     gen_list_free(&dat->inputs);
+    gen_list_free(&dat->debuglines);
     free(dat);
 }
 
@@ -1181,6 +1410,26 @@ void data_update_print(data_update_t *dat)
         data_specialreq_print(dat->specialreq);
     }
 
+    if (dat->includetimer) {
+        printf(",\n \"timer\":");
+        if (!dat->timer)
+            printf("null");
+        else
+            printf("%d", dat->timer);
+    }
+
+    if (dat->debuglines.count) {
+        char **debuglist = (char **)(dat->debuglines.list);
+        printf(",\n \"debugoutput\":[\n");
+        for (ix=0; ix<dat->debuglines.count; ix++) {
+            print_utf8string_json(debuglist[ix], stdout);
+            if (ix+1 < dat->debuglines.count)
+                printf(",");
+            printf("\n");
+        }
+        printf(" ]");
+    }
+
     printf("}\n");
 }
 
@@ -1216,6 +1465,9 @@ void data_window_print(data_window_t *dat)
         case wintype_TextBuffer:
             typename = "buffer";
             break;
+        case wintype_Graphics:
+            typename = "graphics";
+            break;
         default:
             typename = "unknown";
             break;
@@ -1224,6 +1476,8 @@ void data_window_print(data_window_t *dat)
     printf(" { \"id\":%d, \"type\":\"%s\", \"rock\":%d,\n", dat->window, typename, dat->rock);
     if (dat->type == wintype_TextGrid)
         printf("   \"gridwidth\":%d, \"gridheight\":%d,\n", dat->gridwidth, dat->gridheight);
+    if (dat->type == wintype_Graphics)
+        printf("   \"graphwidth\":%d, \"graphheight\":%d,\n", dat->gridwidth, dat->gridheight);
     printf("   \"left\":%d, \"top\":%d, \"width\":%d, \"height\":%d }",
         dat->size.left, dat->size.top, dat->size.right-dat->size.left, dat->size.bottom-dat->size.top);
 }
@@ -1243,6 +1497,7 @@ data_input_t *data_input_alloc(glui32 window, glui32 evtype)
     dat->cursorpos = FALSE;
     dat->xpos = -1;
     dat->ypos = -1;
+    dat->hyperlink = FALSE;
 
     return dat;
 }
@@ -1280,6 +1535,10 @@ void data_input_print(data_input_t *dat)
 
     if (dat->cursorpos) {
         printf(", \"xpos\":%d, \"ypos\":%d", dat->xpos, dat->ypos);
+    }
+
+    if (dat->hyperlink) {
+        printf(", \"hyperlink\":true");
     }
 
     printf(" }");
@@ -1330,6 +1589,10 @@ void data_content_print(data_content_t *dat)
         linelabel = "lines";
         printf(" {\"id\":%d", dat->window);
     }
+    else if (dat->type == wintype_Graphics) {
+        linelabel = "draw";
+        printf(" {\"id\":%d", dat->window);
+    }
     else {
         gli_fatal_error("data: Unknown window type in content_print");
     }
@@ -1337,13 +1600,29 @@ void data_content_print(data_content_t *dat)
     if (dat->lines.count) {
         printf(", \"%s\": [\n", linelabel);
 
-        data_line_t **linelist = (data_line_t **)(dat->lines.list);
-        for (ix=0; ix<dat->lines.count; ix++) {
-            data_line_print(linelist[ix], dat->type);
-            if (ix+1 < dat->lines.count)
-                printf(",");
-            printf("\n");
+        if (dat->type != wintype_Graphics) {
+            data_line_t **linelist = (data_line_t **)(dat->lines.list);
+            for (ix=0; ix<dat->lines.count; ix++) {
+                data_line_print(linelist[ix], dat->type);
+                if (ix+1 < dat->lines.count)
+                    printf(",");
+                printf("\n");
+            }
         }
+        else {
+            /* The specialspans are passed as the contents of a single
+               data_line_t. */
+            if (dat->lines.count == 1) {
+                data_line_t *line = dat->lines.list[0];
+                for (ix=0; ix<line->count; ix++) {
+                    data_specialspan_print(line->spans[ix].special, dat->type);
+                    if (ix+1 < line->count)
+                        printf(",");
+                    printf("\n");
+                }
+            }
+        }
+
         printf(" ]");
     }
 
@@ -1357,6 +1636,7 @@ data_line_t *data_line_alloc()
         gli_fatal_error("data: Unable to alloc line structure");
 
     dat->append = FALSE;
+    dat->flowbreak = FALSE;
     dat->linenum = 0;
 
     dat->spans = NULL;
@@ -1369,7 +1649,7 @@ data_line_t *data_line_alloc()
 void data_line_free(data_line_t *dat)
 {
     if (dat->spans) {
-        /* Do not free the span strings. */
+        /* Do not free the span strings or specials. */
         free(dat->spans);
         dat->spans = NULL;
     };
@@ -1380,7 +1660,7 @@ void data_line_free(data_line_t *dat)
     return;
 }
 
-void data_line_add_span(data_line_t *data, short style, glui32 *str, long len)
+void data_line_add_span(data_line_t *data, short style, glui32 hyperlink, glui32 *str, long len)
 {
     if (!data->spans) {
         data->allocsize = 4;
@@ -1398,8 +1678,41 @@ void data_line_add_span(data_line_t *data, short style, glui32 *str, long len)
 
     data_span_t *span = &(data->spans[data->count++]);
     span->style = style;
+    span->hyperlink = hyperlink;
     span->str = str;
     span->len = len;
+    span->special = NULL;
+}
+
+void data_line_add_specialspan(data_line_t *data, data_specialspan_t *special)
+{
+    /* The flowbreak is a special case. It does not get added as a span;
+       it just sets the flowbreak flag on the line. */
+    if (special->type == specialtype_FlowBreak) {
+        data->flowbreak = TRUE;
+        return;
+    }
+
+    if (!data->spans) {
+        data->allocsize = 4;
+        data->spans = malloc(data->allocsize * sizeof(data_span_t));
+    }
+    else {
+        if (data->count >= data->allocsize) {
+            data->allocsize *= 2;
+            data->spans = realloc(data->spans, data->allocsize * sizeof(data_span_t));
+        }
+    }
+
+    if (!data->spans)
+        gli_fatal_error("data: Unable to allocate memory for span buffer");
+
+    data_span_t *span = &(data->spans[data->count++]);
+    span->style = 0;
+    span->hyperlink = 0;
+    span->str = NULL;
+    span->len = 0;
+    span->special = special;
 }
 
 void data_line_print(data_line_t *dat, glui32 wintype)
@@ -1418,6 +1731,12 @@ void data_line_print(data_line_t *dat, glui32 wintype)
             printf("\"append\":true");
             any = TRUE;
         }
+        if (dat->flowbreak) {
+            if (any)
+                printf(", ");
+            printf("\"flowbreak\":true");
+            any = TRUE;
+        }
     }
 
     if (dat->count) {
@@ -1428,10 +1747,18 @@ void data_line_print(data_line_t *dat, glui32 wintype)
         
         for (ix=0; ix<dat->count; ix++) {
             data_span_t *span = &(dat->spans[ix]);
-            char *stylename = name_for_style(span->style);
-            printf("{ \"style\":\"%s\", \"text\":", stylename);
-            print_ustring_json(span->str, span->len, stdout);
-            printf("}");
+            if (span->special) {
+                data_specialspan_print(span->special, wintype_TextBuffer);
+            }
+            else {
+                char *stylename = name_for_style(span->style);
+                printf("{ \"style\":\"%s\"", stylename);
+                if (span->hyperlink)
+                    printf(", \"hyperlink\":%ld", (unsigned long)span->hyperlink);
+                printf(", \"text\":");
+                print_ustring_json(span->str, span->len, stdout);
+                printf("}");
+            }
             if (ix+1 < dat->count)
                 printf(", ");
         }
@@ -1441,6 +1768,118 @@ void data_line_print(data_line_t *dat, glui32 wintype)
 
     printf("}");
 
+}
+
+data_specialspan_t *data_specialspan_alloc(SpecialType type)
+{
+    data_specialspan_t *dat = (data_specialspan_t *)malloc(sizeof(data_specialspan_t));
+    if (!dat)
+        gli_fatal_error("data: Unable to alloc specialspan structure");
+
+    dat->type = type;
+    dat->chunktype = 0;
+    dat->image = 0;
+    dat->hasdimensions = FALSE;
+    dat->width = 0;
+    dat->height = 0;
+    dat->xpos = 0;
+    dat->ypos = 0;
+    dat->alignment = 0;
+    dat->hyperlink = 0;
+    dat->alttext = NULL;
+    dat->hascolor = FALSE;
+    dat->color = 0;
+
+    return dat;
+}
+
+void data_specialspan_free(data_specialspan_t *dat)
+{
+    dat->type = specialtype_None;
+    dat->alttext = NULL;
+    free(dat);
+    return;
+}
+
+void data_specialspan_print(data_specialspan_t *dat, glui32 wintype)
+{
+    /* For error cases, this prints an ordinary text span. */
+
+    switch (dat->type) {
+
+    case specialtype_Image:
+        printf("{\"special\":\"image\", \"image\":%d, \"width\":%d, \"height\":%d", dat->image, dat->width, dat->height);
+        if (wintype == wintype_Graphics)
+            printf(", \"x\":%d, \"y\":%d", dat->xpos, dat->ypos);
+
+        if (pref_resourceurl) {
+            char *suffix = "";
+            if (dat->chunktype == 0x4A504547)
+                suffix = ".jpeg";
+            else if (dat->chunktype == 0x504E4720)
+                suffix = ".png";
+            printf(", \"url\":\"%spict-%d%s\"", pref_resourceurl, dat->image, suffix);
+        }
+
+        if (wintype != wintype_Graphics) {
+            char *alignment;
+            switch (dat->alignment) {
+            default:
+            case imagealign_InlineUp:
+                alignment = "inlineup";
+                break;
+            case imagealign_InlineDown:
+                alignment = "inlinedown";
+                break;
+            case imagealign_InlineCenter:
+                alignment = "inlinecenter";
+                break;
+            case imagealign_MarginLeft:
+                alignment = "marginleft";
+                break;
+            case imagealign_MarginRight:
+                alignment = "marginright";
+                break;
+            }
+            printf(", \"alignment\":\"%s\"", alignment);
+        }
+
+        if (dat->hyperlink)
+            printf(", \"hyperlink\":\"%d\"", dat->hyperlink);
+        if (dat->alttext) {
+            /* ### not sure what format the alt-text is in yet */
+            printf(", \"alttext\":\"###\"");
+        }
+        printf("}");
+        break;
+
+    case specialtype_FlowBreak:
+        printf("{\"text\":\"[ERROR: data_specialspan_print: flowbreak should have been converted to a line flag]\"}");
+        break;
+
+    case specialtype_SetColor:
+        printf("{\"special\":\"setcolor\"");
+        if (dat->hascolor)
+            printf(", \"color\":\"#%06X\"", dat->color);
+        printf("}");
+        break;
+
+    case specialtype_Fill:
+        printf("{\"special\":\"fill\"");
+        if (dat->hasdimensions)
+            printf(", \"x\":%d, \"y\":%d", dat->xpos, dat->ypos);
+        if (dat->hasdimensions)
+            printf(", \"width\":%d, \"height\":%d", dat->width, dat->height);
+        if (dat->hascolor)
+            printf(", \"color\":\"#%06X\"", dat->color);
+        printf("}");
+        break;
+
+    default:
+        printf("{\"text\":\"[ERROR: data_specialspan_print: unrecognized special type]\"}");
+        break;
+
+    }
 }
 
 data_specialreq_t *data_specialreq_alloc(glui32 filemode, glui32 filetype)

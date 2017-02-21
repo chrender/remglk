@@ -20,8 +20,8 @@ glui32 glk_gestalt_ext(glui32 id, glui32 val, glui32 *arr, glui32 arrlen)
     switch (id) {
         
         case gestalt_Version:
-            /* This implements Glk spec version 0.7.4. */
-            return 0x00000704;
+            /* This implements Glk spec version 0.7.5. */
+            return 0x00000705;
         
         case gestalt_LineInput:
             if (val >= 32 && val < 127)
@@ -64,13 +64,22 @@ glui32 glk_gestalt_ext(glui32 id, glui32 val, glui32 *arr, glui32 arrlen)
             return FALSE;
             
         case gestalt_Timer: 
-            return FALSE; /* ### for now */
+            return pref_timersupport;
 
         case gestalt_Graphics:
         case gestalt_GraphicsTransparency:
+            return pref_graphicssupport;
+
+        case gestalt_GraphicsCharInput:
             return FALSE;
             
         case gestalt_DrawImage:
+            if (pref_graphicssupport) {
+                if (val == wintype_TextBuffer)
+                    return TRUE;
+                if (val == wintype_Graphics && pref_graphicswinsupport)
+                    return TRUE;
+            }
             return FALSE;
             
         case gestalt_Unicode:
@@ -84,7 +93,11 @@ glui32 glk_gestalt_ext(glui32 id, glui32 val, glui32 *arr, glui32 arrlen)
         case gestalt_SoundNotify: 
         case gestalt_SoundMusic:
             return FALSE;
-  
+
+        case gestalt_Hyperlinks: 
+        case gestalt_HyperlinkInput:
+            return pref_hyperlinksupport;
+ 
         case gestalt_LineInputEcho:
             return TRUE;
 

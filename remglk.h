@@ -8,8 +8,9 @@
 #define REMGLK_H
 
 #include "gi_dispa.h"
+#include "gi_debug.h"
 
-#define LIBRARY_VERSION "0.2.3"
+#define LIBRARY_VERSION "0.2.6"
 
 /* We define our own TRUE and FALSE and NULL, because ANSI
     is a strange world. */
@@ -73,11 +74,13 @@ struct glk_window_struct {
     int line_request_uni;
     int char_request;
     int char_request_uni;
+    int hyperlink_request;
 
     int echo_line_input; /* applies to future line inputs, not the current */
     glui32 terminate_line_input; /* ditto; this is a bitmask of flags */
 
     glui32 style;
+    glui32 hyperlink;
     
     gidispatch_rock_t disprock;
     window_t *next, *prev; /* in the big linked list of windows */
@@ -169,6 +172,18 @@ extern int pref_stderr;
 extern int pref_printversion;
 extern int pref_screenwidth;
 extern int pref_screenheight;
+extern int pref_timersupport;
+extern int pref_hyperlinksupport;
+extern int pref_graphicssupport;
+extern int pref_graphicswinsupport;
+extern char *pref_resourceurl;
+
+#if GIDEBUG_LIBRARY_SUPPORT
+/* Has the user requested debug support? */
+extern int gli_debugger;
+#else /* GIDEBUG_LIBRARY_SUPPORT */
+#define gli_debugger (0)
+#endif /* GIDEBUG_LIBRARY_SUPPORT */
 
 /* Declarations of library internal functions. */
 
@@ -185,9 +200,11 @@ extern int gli_msgin_getchar(char *prompt, int hilite);
 extern void gli_putchar_utf8(glui32 val, FILE *fl);
 extern glui32 gli_parse_utf8(unsigned char *buf, glui32 buflen,
     glui32 *out, glui32 outlen);
+extern int gli_encode_utf8(glui32 val, char *buf, int len);
 
 extern void gli_initialize_events(void);
 extern void gli_event_store(glui32 type, window_t *win, glui32 val1, glui32 val2);
+extern int gli_timer_need_update(glui32 *msec);
 
 extern void gli_initialize_windows(data_metrics_t *metrics);
 extern void gli_fast_exit(void);
@@ -236,6 +253,48 @@ extern void gli_delete_fileref(fileref_t *fref);
     (evp)->win = NULL,    \
     (evp)->val1 = 0,   \
     (evp)->val2 = 0)
+
+/* A macro which reads and decodes one character of UTF-8. Needs no
+   explanation, I'm sure.
+
+   Oh, okay. The character will be written to *chptr (so pass in "&ch",
+   where ch is a glui32 variable). eofcond should be a condition to
+   evaluate end-of-stream -- true if no more characters are readable.
+   nextch is a function which reads the next character; this is invoked
+   exactly as many times as necessary.
+
+   val0, val1, val2, val3 should be glui32 scratch variables. The macro
+   needs these. Just define them, you don't need to pay attention to them
+   otherwise.
+
+   The macro itself evaluates to true if ch was successfully set, or
+   false if something went wrong. (Not enough characters, or an
+   invalid byte sequence.)
+
+   This is not the worst macro I've ever written, but I forget what the
+   other one was.
+*/
+
+#define UTF8_DECODE_INLINE(chptr, eofcond, nextch, val0, val1, val2, val3)  ( \
+    (eofcond ? 0 : ( \
+        (((val0=nextch) < 0x80) ? (*chptr=val0, 1) : ( \
+            (eofcond ? 0 : ( \
+                (((val1=nextch) & 0xC0) != 0x80) ? 0 : ( \
+                    (((val0 & 0xE0) == 0xC0) ? (*chptr=((val0 & 0x1F) << 6) | (val1 & 0x3F), 1) : ( \
+                        (eofcond ? 0 : ( \
+                            (((val2=nextch) & 0xC0) != 0x80) ? 0 : ( \
+                                (((val0 & 0xF0) == 0xE0) ? (*chptr=(((val0 & 0xF)<<12)  & 0x0000F000) | (((val1 & 0x3F)<<6) & 0x00000FC0) | (((val2 & 0x3F))    & 0x0000003F), 1) : ( \
+                                    (((val0 & 0xF0) != 0xF0 || eofcond) ? 0 : (\
+                                        (((val3=nextch) & 0xC0) != 0x80) ? 0 : (*chptr=(((val0 & 0x7)<<18)   & 0x1C0000) | (((val1 & 0x3F)<<12) & 0x03F000) | (((val2 & 0x3F)<<6)  & 0x000FC0) | (((val3 & 0x3F))     & 0x00003F), 1) \
+                                        )) \
+                                    )) \
+                                )) \
+                            )) \
+                        )) \
+                )) \
+            )) \
+        )) \
+    )
 
 #ifdef NO_MEMMOVE
     extern void *memmove(void *dest, void *src, int n);
