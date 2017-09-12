@@ -1,0 +1,3 @@
+version=3
+https://fizmo.spellbreaker.org/sources/remglk/remglk-(.*)\.tar\.gz
+opts=pgpsigurlmangle=s/$/.asc/ https://fizmo.spellbreaker.org/sources/remglk/remglk-(.*)\.tar\.gz

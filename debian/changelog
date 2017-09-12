@@ -1,12 +1,6 @@
 remglk (0.2.6-1) experimental; urgency=low
 
-  * New upstream version.
-
- -- Christoph Ender <christoph.ender@spellbreaker.org>  Mon, 10 Apr 2017 23:35:00 +0200
-
-
-remglk (0.2.3-1) experimental; urgency=low
-
   * Initial release (Closes: #843174).
 
- -- Christoph Ender <christoph.ender@spellbreaker.org>  Sun, 6 Nov 2016 10:35:00 +0100
+ -- Christoph Ender <christoph.ender@spellbreaker.org>  Tue, 12 Sep 2017 23:15:00 +0200
+
